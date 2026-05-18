@@ -325,7 +325,9 @@ function attachEvents() {
   document.getElementById('overlay')?.addEventListener('click', e => {
     if (e.target.id === 'overlay') { modalOpen = false; render(); }
   });
-  document.getElementById('submitLesson')?.addEventListener('click', async () => {
+document.getElementById('submitLesson')?.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     const sid = document.getElementById('f_student').value;
     const subj = document.getElementById('f_subject').value || 'Занятие';
     const start = document.getElementById('f_start').value;
