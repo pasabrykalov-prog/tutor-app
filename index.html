@@ -1,0 +1,155 @@
+Вот полный код Apps Script — замени всё что есть в редакторе:
+
+```javascript
+const SHEET_ID = '1LZIRF47ISvA7USbF799t5T7F40JRDdSqniXk9GO5064';
+const BOT_TOKEN = '8789473965:AAGeAfAXkbenozszsoVpm8YsTeQB4YRgkhQ';
+const WEBAPP_URL = 'https://pasabrykalov-prog.github.io/tutor-app/';
+
+function sendMessage(chat_id, text, reply_markup) {
+  const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+  const payload = { chat_id, text, parse_mode: 'HTML', reply_markup: JSON.stringify(reply_markup || {}) };
+  UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', payload: JSON.stringify(payload) });
+}
+
+function sendWebAppButton(chat_id, text, btnText, url) {
+  const reply_markup = { inline_keyboard: [[{ text: btnText, web_app: { url } }]] };
+  sendMessage(chat_id, text, reply_markup);
+}
+
+function getStudentByTgId(tg_id) {
+  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Students');
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][4]) === String(tg_id)) {
+      return { id: data[i][0], name: data[i][1], subject: data[i][2], zoom: data[i][3] };
+    }
+  }
+  return null;
+}
+
+function getAllStudents() {
+  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Students');
+  const data = sheet.getDataRange().getValues();
+  const students = [];
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0]) students.push({ id: data[i][0], name: data[i][1], subject: data[i][2], zoom: data[i][3], tg_id: data[i][4] });
+  }
+  return students;
+}
+
+function getLessonsByStudentId(student_id) {
+  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Lessons');
+  const data = sheet.getDataRange().getValues();
+  const lessons = [];
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][1]) === String(student_id)) {
+      lessons.push({ id: data[i][0], student_id: data[i][1], subject: data[i][2], date: data[i][3], time_start: data[i][4], time_end: data[i][5] });
+    }
+  }
+  return lessons;
+}
+
+function getAllLessons() {
+  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Lessons');
+  const data = sheet.getDataRange().getValues();
+  const lessons = [];
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0]) lessons.push({ id: data[i][0], student_id: data[i][1], subject: data[i][2], date: data[i][3], time_start: data[i][4], time_end: data[i][5] });
+  }
+  return lessons;
+}
+
+function linkStudentTg(student_id, tg_id) {
+  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Students');
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(student_id)) {
+      sheet.getRange(i + 1, 5).setValue(tg_id);
+      return true;
+    }
+  }
+  return false;
+}
+
+function addLesson(student_id, subject, date, time_start, time_end) {
+  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Lessons');
+  const lastRow = sheet.getLastRow();
+  sheet.appendRow([lastRow, student_id, subject, date, time_start, time_end]);
+}
+
+function doPost(e) {
+  const update = JSON.parse(e.postData.contents);
+  const msg = update.message;
+  if (!msg) return;
+
+  const chat_id = msg.chat.id;
+  const text = msg.text || '';
+  const tg_id = msg.from.id;
+
+  if (text === '/start') {
+    const student = getStudentByTgId(tg_id);
+    if (student) {
+      const url = `${WEBAPP_URL}?mode=student&id=${student.id}`;
+      sendWebAppButton(chat_id, `Привет, ${student.name}! 👋\nВот твоё расписание:`, '📅 Открыть расписание', url);
+    } else {
+      sendMessage(chat_id, 'Привет! 👋\n\nЕсли ты ученик — попроси репетитора прислать тебе личную ссылку.');
+    }
+    return;
+  }
+
+  if (text.startsWith('/start s_')) {
+    const student_id = text.replace('/start s_', '');
+    linkStudentTg(student_id, tg_id);
+    const student = getAllStudents().find(s => String(s.id) === String(student_id));
+    if (student) {
+      const url = `${WEBAPP_URL}?mode=student&id=${student_id}`;
+      sendWebAppButton(chat_id, `Привет, ${student.name}! 🎉\nТы успешно подключился:`, '📅 Открыть расписание', url);
+    }
+    return;
+  }
+
+  if (text === '/admin') {
+    const url = `${WEBAPP_URL}?mode=admin`;
+    sendWebAppButton(chat_id, 'Панель репетитора 🗂', '⚙️ Открыть панель', url);
+    return;
+  }
+}
+
+function doGet(e) {
+  const action = e.parameter.action;
+
+  if (action === 'getStudents') {
+    return jsonResponse(getAllStudents());
+  }
+
+  if (action === 'addLesson') {
+    const { student_id, subject, date, time_start, time_end } = e.parameter;
+    addLesson(student_id, subject, date, time_start, time_end);
+    return jsonResponse({ ok: true });
+  }
+
+  if (action === 'getLessons') {
+    const student_id = e.parameter.student_id;
+    if (student_id) return jsonResponse(getLessonsByStudentId(student_id));
+    return jsonResponse(getAllLessons());
+  }
+
+  return jsonResponse({ ok: true });
+}
+
+function jsonResponse(data) {
+  return ContentService
+    .createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function setWebhook() {
+  const url = `https://api.telegram.org/bot${BOT_TOKEN}/setWebhook?url=${ScriptApp.getService().getUrl()}`;
+  const response = UrlFetchApp.fetch(url);
+  Logger.log(response.getContentText());
+}
+```
+
+После вставки в Apps Script нажми **"Развернуть" → "Управление развёртываниями" → карандашик ✏️ → "Новая версия" → "Развернуть"**.
+
+Это важно — без нового деплоя изменения не применятся!
