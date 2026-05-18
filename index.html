@@ -1,147 +1,350 @@
-const SHEET_ID = '1LZIRF47ISvA7USbF799t5T7F40JRDdSqniXk9GO5064';
-const BOT_TOKEN = '8789473965:AAGeAfAXkbenozszsoVpm8YsTeQB4YRgkhQ';
-const WEBAPP_URL = 'https://pasabrykalov-prog.github.io/tutor-app/';
-
-function sendMessage(chat_id, text, reply_markup) {
-  const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-  const payload = { chat_id, text, parse_mode: 'HTML', reply_markup: JSON.stringify(reply_markup || {}) };
-  UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', payload: JSON.stringify(payload) });
-}
-
-function sendWebAppButton(chat_id, text, btnText, url) {
-  const reply_markup = { inline_keyboard: [[{ text: btnText, web_app: { url } }]] };
-  sendMessage(chat_id, text, reply_markup);
-}
-
-function getStudentByTgId(tg_id) {
-  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Students');
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][4]) === String(tg_id)) {
-      return { id: data[i][0], name: data[i][1], subject: data[i][2], zoom: data[i][3] };
-    }
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Расписание</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;700&family=Golos+Text:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0f0f13;
+    --surface: #18181f;
+    --surface2: #22222c;
+    --border: rgba(255,255,255,0.07);
+    --accent: #7B6EF6;
+    --accent2: #A78BFA;
+    --accent-glow: rgba(123,110,246,0.25);
+    --text: #f0eeff;
+    --muted: rgba(240,238,255,0.45);
+    --green: #4ADE80;
+    --amber: #FBBF24;
+    --red: #F87171;
   }
-  return null;
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { font-family: 'Golos Text', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  #app { padding: 0 0 80px; }
+
+  .header { padding: 20px 20px 0; display: flex; align-items: center; justify-content: space-between; }
+  .logo { font-family: 'Unbounded', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: var(--accent2); }
+  .mode-badge { font-size: 11px; font-weight: 500; background: var(--surface2); border: 1px solid var(--border); padding: 4px 10px; border-radius: 20px; color: var(--muted); }
+
+  .greeting { padding: 28px 20px 0; }
+  .greeting-name { font-family: 'Unbounded', sans-serif; font-size: 22px; font-weight: 700; line-height: 1.2; background: linear-gradient(135deg, var(--text) 0%, var(--accent2) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 4px; }
+  .greeting-sub { font-size: 13px; color: var(--muted); }
+
+  .week-strip { display: flex; gap: 8px; padding: 20px 20px 0; overflow-x: auto; scrollbar-width: none; }
+  .week-strip::-webkit-scrollbar { display: none; }
+  .day-pill { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 14px; border-radius: 16px; cursor: pointer; border: 1px solid var(--border); background: var(--surface); transition: all 0.2s; min-width: 52px; }
+  .day-pill.active { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 20px var(--accent-glow); }
+  .day-pill.has-lesson::after { content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--accent2); display: block; }
+  .day-pill.active.has-lesson::after { background: white; }
+  .day-name { font-size: 10px; font-weight: 600; letter-spacing: 0.05em; color: var(--muted); text-transform: uppercase; }
+  .day-pill.active .day-name { color: rgba(255,255,255,0.8); }
+  .day-num { font-family: 'Unbounded', sans-serif; font-size: 15px; font-weight: 600; color: var(--text); }
+  .day-pill.active .day-num { color: white; }
+
+  .section-title { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding: 24px 20px 12px; }
+
+  .lessons-list { padding: 0 16px; display: flex; flex-direction: column; gap: 10px; }
+  .lesson-card { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 16px 18px; display: flex; align-items: center; gap: 14px; position: relative; overflow: hidden; animation: fadeUp 0.3s ease both; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  .lesson-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); border-radius: 3px 0 0 3px; }
+  .lesson-card.ongoing::before { background: var(--green); }
+  .lesson-card.done::before { background: var(--border); }
+
+  .lesson-time { display: flex; flex-direction: column; align-items: center; min-width: 44px; }
+  .time-start { font-family: 'Unbounded', sans-serif; font-size: 13px; font-weight: 600; color: var(--text); }
+  .time-sep { width: 1px; height: 12px; background: var(--border); margin: 3px 0; }
+  .time-end { font-size: 11px; color: var(--muted); }
+
+  .lesson-info { flex: 1; min-width: 0; }
+  .lesson-subject { font-size: 15px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lesson-student { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .lesson-done .lesson-subject { color: var(--muted); }
+
+  .lesson-actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+  .zoom-btn { display: flex; align-items: center; gap: 5px; background: var(--accent); color: white; font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 10px; border: none; cursor: pointer; text-decoration: none; transition: all 0.15s; white-space: nowrap; }
+  .zoom-btn:active { transform: scale(0.95); opacity: 0.85; }
+  .zoom-btn.done-btn { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  .empty { text-align: center; padding: 48px 32px; animation: fadeUp 0.3s ease; }
+  .empty-icon { font-size: 40px; margin-bottom: 12px; }
+  .empty-title { font-family: 'Unbounded', sans-serif; font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+  .empty-sub { font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+  .loading { text-align: center; padding: 60px 32px; }
+  .spinner { width: 32px; height: 32px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-size: 13px; color: var(--muted); }
+
+  .add-fab { position: fixed; bottom: 24px; right: 20px; width: 52px; height: 52px; border-radius: 50%; background: var(--accent); border: none; color: white; font-size: 24px; cursor: pointer; box-shadow: 0 4px 24px var(--accent-glow); display: flex; align-items: center; justify-content: center; transition: all 0.2s; z-index: 100; }
+  .add-fab:active { transform: scale(0.92); }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 200; display: flex; align-items: flex-end; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 24px 24px 0 0; padding: 24px 20px 40px; width: 100%; transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.32,0.72,0,1); }
+  .modal-overlay.open .modal { transform: translateY(0); }
+  .modal-handle { width: 36px; height: 4px; border-radius: 2px; background: var(--border); margin: 0 auto 20px; }
+  .modal-title { font-family: 'Unbounded', sans-serif; font-size: 16px; font-weight: 600; margin-bottom: 20px; color: var(--text); }
+
+  .form-group { margin-bottom: 14px; }
+  .form-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; display: block; font-weight: 500; }
+  .form-input, .form-select { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; color: var(--text); font-size: 15px; font-family: 'Golos Text', sans-serif; outline: none; transition: border-color 0.2s; -webkit-appearance: none; }
+  .form-input:focus, .form-select:focus { border-color: var(--accent); }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .submit-btn { width: 100%; margin-top: 8px; background: var(--accent); color: white; border: none; border-radius: 14px; padding: 14px; font-size: 15px; font-weight: 600; font-family: 'Unbounded', sans-serif; cursor: pointer; transition: all 0.15s; }
+  .submit-btn:active { transform: scale(0.98); opacity: 0.9; }
+
+  .tabs { display: flex; gap: 6px; padding: 16px 20px 0; }
+  .tab { flex: 1; padding: 8px; text-align: center; border-radius: 12px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--muted); transition: all 0.2s; }
+  .tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+  .student-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin: 0 16px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; animation: fadeUp 0.3s ease; }
+  .student-avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-family: 'Unbounded', sans-serif; font-size: 13px; font-weight: 700; color: white; flex-shrink: 0; }
+  .student-name { font-size: 14px; font-weight: 500; color: var(--text); }
+  .student-subject { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .copy-btn { margin-left: auto; background: var(--surface2); border: 1px solid var(--border); color: var(--muted); font-size: 12px; padding: 5px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
+  .copy-btn.copied { color: var(--green); border-color: var(--green); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const tg = window.Telegram?.WebApp;
+if (tg) { tg.expand(); tg.setHeaderColor('#0f0f13'); }
+
+const API_URL = 'https://script.google.com/macros/s/AKfycbz0BhwyCdIz-dTGQl18FFwe4r8m46qHI7t9psxRLoOV42hVjf2fMH6UtIXUdf82BEk2/exec';
+const DAYS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+const today = new Date();
+
+const params = new URLSearchParams(location.search);
+const MODE = params.get('mode') || 'admin';
+const STUDENT_ID = params.get('id') || null;
+
+let selectedDay = new Date(today);
+let activeTab = 'schedule';
+let modalOpen = false;
+let students = [];
+let lessons = [];
+let loading = true;
+
+function fmt2(n) { return String(n).padStart(2,'0'); }
+function fmtTime(str) { return str ? String(str).slice(0,5) : ''; }
+function sameDay(a, b) {
+  const da = new Date(a), db = new Date(b);
+  return da.getFullYear()===db.getFullYear() && da.getMonth()===db.getMonth() && da.getDate()===db.getDate();
+}
+function parseLesson(l) {
+  const dateStr = l.date;
+  const start = new Date(`${dateStr}T${l.time_start}`);
+  const end = new Date(`${dateStr}T${l.time_end}`);
+  return { ...l, startDate: start, endDate: end };
+}
+function getLessonStatus(lesson) {
+  const now = new Date();
+  if (lesson.endDate < now) return 'done';
+  if (lesson.startDate <= now && now <= lesson.endDate) return 'ongoing';
+  return 'upcoming';
+}
+function getStudentById(id) { return students.find(s => String(s.id) === String(id)); }
+
+async function loadData() {
+  loading = true;
+  render();
+  try {
+    const [sRes, lRes] = await Promise.all([
+      fetch(`${API_URL}?action=getStudents`),
+      fetch(`${API_URL}?action=getLessons${STUDENT_ID ? '&student_id='+STUDENT_ID : ''}`)
+    ]);
+    students = await sRes.json();
+    const raw = await lRes.json();
+    lessons = raw.map(parseLesson);
+  } catch(e) {
+    students = [];
+    lessons = [];
+  }
+  loading = false;
+  render();
 }
 
-function getAllStudents() {
-  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Students');
-  const data = sheet.getDataRange().getValues();
-  const students = [];
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0]) students.push({ id: data[i][0], name: data[i][1], subject: data[i][2], zoom: data[i][3], tg_id: data[i][4] });
-  }
-  return students;
+function render() {
+  document.getElementById('app').innerHTML = loading
+    ? renderLoading()
+    : (MODE === 'admin' ? renderAdmin() : renderStudent());
+  if (!loading) attachEvents();
 }
 
-function getLessonsByStudentId(student_id) {
-  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Lessons');
-  const data = sheet.getDataRange().getValues();
-  const lessons = [];
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][1]) === String(student_id)) {
-      lessons.push({ id: data[i][0], student_id: data[i][1], subject: data[i][2], date: data[i][3], time_start: data[i][4], time_end: data[i][5] });
-    }
-  }
-  return lessons;
+function renderLoading() {
+  return `<div class="loading"><div class="spinner"></div><div class="loading-text">Загружаем расписание...</div></div>`;
 }
 
-function getAllLessons() {
-  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Lessons');
-  const data = sheet.getDataRange().getValues();
-  const lessons = [];
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0]) lessons.push({ id: data[i][0], student_id: data[i][1], subject: data[i][2], date: data[i][3], time_start: data[i][4], time_end: data[i][5] });
+function renderWeekStrip() {
+  let html = '<div class="week-strip">';
+  for (let i = -1; i <= 5; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    const active = sameDay(d, selectedDay) ? 'active' : '';
+    const hasLesson = lessons.some(l => sameDay(l.startDate, d)) ? 'has-lesson' : '';
+    html += `<div class="day-pill ${active} ${hasLesson}" data-date="${d.toISOString()}">
+      <span class="day-name">${DAYS[d.getDay()]}</span>
+      <span class="day-num">${d.getDate()}</span>
+    </div>`;
   }
-  return lessons;
+  return html + '</div>';
 }
 
-function linkStudentTg(student_id, tg_id) {
-  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Students');
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(student_id)) {
-      sheet.getRange(i + 1, 5).setValue(tg_id);
-      return true;
-    }
+function renderLessons(filterStudentId = null) {
+  const dayLessons = lessons
+    .filter(l => sameDay(l.startDate, selectedDay))
+    .filter(l => filterStudentId ? String(l.student_id) === String(filterStudentId) : true)
+    .sort((a,b) => a.startDate - b.startDate);
+
+  if (!dayLessons.length) {
+    return `<div class="empty"><div class="empty-icon">🎉</div><div class="empty-title">Занятий нет</div><div class="empty-sub">В этот день свободно!</div></div>`;
   }
-  return false;
+
+  let html = '<div class="lessons-list">';
+  dayLessons.forEach((lesson, i) => {
+    const status = getLessonStatus(lesson);
+    const student = getStudentById(lesson.student_id);
+    html += `<div class="lesson-card ${status}" style="animation-delay:${i*0.06}s">
+      <div class="lesson-time">
+        <span class="time-start">${fmtTime(lesson.time_start)}</span>
+        <div class="time-sep"></div>
+        <span class="time-end">${fmtTime(lesson.time_end)}</span>
+      </div>
+      <div class="lesson-info ${status==='done'?'lesson-done':''}">
+        <div class="lesson-subject">${lesson.subject}</div>
+        ${!filterStudentId ? `<div class="lesson-student">${student?.name || ''}</div>` : ''}
+      </div>
+      <div class="lesson-actions">
+        ${status === 'ongoing' ? '<div class="status-dot"></div>' : ''}
+        ${status !== 'done'
+          ? `<a href="${student?.zoom || '#'}" class="zoom-btn" target="_blank">📹 Zoom</a>`
+          : `<span class="zoom-btn done-btn">Готово</span>`}
+      </div>
+    </div>`;
+  });
+  return html + '</div>';
 }
 
-function addLesson(student_id, subject, date, time_start, time_end) {
-  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Lessons');
-  const lastRow = sheet.getLastRow();
-  sheet.appendRow([lastRow, student_id, subject, date, time_start, time_end]);
+function renderAdmin() {
+  return `
+    <div class="header"><span class="logo">TUTOR</span><span class="mode-badge">Репетитор</span></div>
+    <div class="greeting">
+      <div class="greeting-name">Привет! 👋</div>
+      <div class="greeting-sub">${today.toLocaleDateString('ru',{weekday:'long',day:'numeric',month:'long'})}</div>
+    </div>
+    <div class="tabs">
+      <div class="tab ${activeTab==='schedule'?'active':''}" data-tab="schedule">Расписание</div>
+      <div class="tab ${activeTab==='students'?'active':''}" data-tab="students">Ученики</div>
+    </div>
+    ${activeTab === 'schedule' ? `
+      ${renderWeekStrip()}
+      <div class="section-title">Занятия</div>
+      ${renderLessons()}
+      <button class="add-fab" id="addBtn">＋</button>
+    ` : renderStudentsList()}
+    ${renderModal()}
+  `;
 }
 
-function doPost(e) {
-  const update = JSON.parse(e.postData.contents);
-  const msg = update.message;
-  if (!msg) return;
-
-  const chat_id = msg.chat.id;
-  const text = msg.text || '';
-  const tg_id = msg.from.id;
-
-  if (text === '/start') {
-    const student = getStudentByTgId(tg_id);
-    if (student) {
-      const url = `${WEBAPP_URL}?mode=student&id=${student.id}`;
-      sendWebAppButton(chat_id, `Привет, ${student.name}! 👋\nВот твоё расписание:`, '📅 Открыть расписание', url);
-    } else {
-      sendMessage(chat_id, 'Привет! 👋\n\nЕсли ты ученик — попроси репетитора прислать тебе личную ссылку.');
-    }
-    return;
-  }
-
-  if (text.startsWith('/start s_')) {
-    const student_id = text.replace('/start s_', '');
-    linkStudentTg(student_id, tg_id);
-    const student = getAllStudents().find(s => String(s.id) === String(student_id));
-    if (student) {
-      const url = `${WEBAPP_URL}?mode=student&id=${student_id}`;
-      sendWebAppButton(chat_id, `Привет, ${student.name}! 🎉\nТы успешно подключился:`, '📅 Открыть расписание', url);
-    }
-    return;
-  }
-
-  if (text === '/admin') {
-    const url = `${WEBAPP_URL}?mode=admin`;
-    sendWebAppButton(chat_id, 'Панель репетитора 🗂', '⚙️ Открыть панель', url);
-    return;
-  }
+function renderStudentsList() {
+  if (!students.length) return `<div class="empty"><div class="empty-icon">👤</div><div class="empty-title">Нет учеников</div><div class="empty-sub">Добавь учеников в Google Sheets</div></div>`;
+  let html = '<div style="padding-top:12px">';
+  students.forEach(s => {
+    const link = `https://t.me/${location.hostname.includes('github') ? 'твой_бот' : 'бот'}?start=s_${s.id}`;
+    html += `<div class="student-row">
+      <div class="student-avatar">${s.name[0]}</div>
+      <div>
+        <div class="student-name">${s.name}</div>
+        <div class="student-subject">${s.subject}</div>
+      </div>
+      <button class="copy-btn" data-link="${link}" id="copy_${s.id}">Скопировать</button>
+    </div>`;
+  });
+  return html + '</div>';
 }
 
-function doGet(e) {
-  const action = e.parameter.action;
-
-  if (action === 'getStudents') {
-    return jsonResponse(getAllStudents());
-  }
-
-  if (action === 'addLesson') {
-    const { student_id, subject, date, time_start, time_end } = e.parameter;
-    addLesson(student_id, subject, date, time_start, time_end);
-    return jsonResponse({ ok: true });
-  }
-
-  if (action === 'getLessons') {
-    const student_id = e.parameter.student_id;
-    if (student_id) return jsonResponse(getLessonsByStudentId(student_id));
-    return jsonResponse(getAllLessons());
-  }
-
-  return jsonResponse({ ok: true });
+function renderModal() {
+  return `<div class="modal-overlay ${modalOpen?'open':''}" id="overlay">
+    <div class="modal">
+      <div class="modal-handle"></div>
+      <div class="modal-title">Добавить занятие</div>
+      <div class="form-group">
+        <label class="form-label">Ученик</label>
+        <select class="form-select" id="f_student">
+          ${students.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Предмет</label>
+        <input class="form-input" id="f_subject" placeholder="Математика..." />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Начало</label>
+          <input class="form-input" id="f_start" type="time" value="14:00" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Конец</label>
+          <input class="form-input" id="f_end" type="time" value="15:30" />
+        </div>
+      </div>
+      <button class="submit-btn" id="submitLesson">Добавить</button>
+    </div>
+  </div>`;
 }
 
-function jsonResponse(data) {
-  return ContentService
-    .createTextOutput(JSON.stringify(data))
-    .setMimeType(ContentService.MimeType.JSON);
+function renderStudent() {
+  const student = getStudentById(STUDENT_ID);
+  const name = student ? student.name.split(' ')[0] : 'Ученик';
+  return `
+    <div class="header"><span class="logo">TUTOR</span><span class="mode-badge">Ученик</span></div>
+    <div class="greeting">
+      <div class="greeting-name">${name} 👋</div>
+      <div class="greeting-sub">${today.toLocaleDateString('ru',{weekday:'long',day:'numeric',month:'long'})}</div>
+    </div>
+    ${renderWeekStrip()}
+    <div class="section-title">Мои занятия</div>
+    ${renderLessons(STUDENT_ID)}
+  `;
 }
 
-function setWebhook() {
-  const url = `https://api.telegram.org/bot${BOT_TOKEN}/setWebhook?url=${ScriptApp.getService().getUrl()}`;
-  const response = UrlFetchApp.fetch(url);
-  Logger.log(response.getContentText());
+function attachEvents() {
+  document.querySelectorAll('.day-pill').forEach(el => {
+    el.addEventListener('click', () => { selectedDay = new Date(el.dataset.date); render(); });
+  });
+  document.querySelectorAll('.tab').forEach(el => {
+    el.addEventListener('click', () => { activeTab = el.dataset.tab; render(); });
+  });
+  document.getElementById('addBtn')?.addEventListener('click', () => { modalOpen = true; render(); });
+  document.getElementById('overlay')?.addEventListener('click', e => {
+    if (e.target.id === 'overlay') { modalOpen = false; render(); }
+  });
+  document.getElementById('submitLesson')?.addEventListener('click', async () => {
+    const sid = document.getElementById('f_student').value;
+    const subj = document.getElementById('f_subject').value || 'Занятие';
+    const start = document.getElementById('f_start').value;
+    const end = document.getElementById('f_end').value;
+    const date = selectedDay.toISOString().slice(0,10);
+    await fetch(`${API_URL}?action=addLesson&student_id=${sid}&subject=${encodeURIComponent(subj)}&date=${date}&time_start=${start}&time_end=${end}`);
+    modalOpen = false;
+    await loadData();
+  });
+  document.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      navigator.clipboard?.writeText(btn.dataset.link);
+      btn.textContent = 'Скопировано!'; btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Скопировать'; btn.classList.remove('copied'); }, 2000);
+    });
+  });
 }
+
+loadData();
+</script>
+</body>
+</html>
