@@ -256,7 +256,7 @@ function renderStudentsList() {
   if (!students.length) return `<div class="empty"><div class="empty-icon">👤</div><div class="empty-title">Нет учеников</div><div class="empty-sub">Добавь учеников в Google Sheets</div></div>`;
   let html = '<div style="padding-top:12px">';
   students.forEach(s => {
-    const link = `https://t.me/${location.hostname.includes('github') ? 'твой_бот' : 'бот'}?start=s_${s.id}`;
+    const link = `https://t.me/tutot_app_bot?start=s_${s.id}`;
     html += `<div class="student-row">
       <div class="student-avatar">${s.name[0]}</div>
       <div>
